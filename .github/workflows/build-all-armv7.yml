@@ -1,13 +1,13 @@
 name: 编译全部 RetroArch ARMv7-NEON 核心 (含LTO优化)
 on:
-  workflow_dispatch:  # 仅手动触发（全核心编译耗时极长，禁止自动触发）
+  workflow_dispatch:  # 仅手动触发
 
 jobs:
   build-all-cores:
     runs-on: ubuntu-latest
-    timeout-minutes: 720  # 最大12小时，保证全核心编译完成
+    timeout-minutes: 720  # 12小时超时，保证编译完成
     steps:
-      - name: 检出 libretro-super 核心集合源码
+      - name: 检出 libretro-super 源码
         uses: actions/checkout@v4
         with:
           repository: libretro/libretro-super
@@ -15,8 +15,7 @@ jobs:
           submodules: recursive
           fetch-depth: 1
 
-      # 缓存工具链，大幅加速重复构建
-      - name: 缓存 ARMv7 交叉编译工具链
+      - name: 缓存 ARMv7 工具链
         uses: actions/cache@v4
         with:
           path: |
@@ -24,49 +23,48 @@ jobs:
             /usr/lib/gcc/arm-linux-gnueabihf
           key: ${{ runner.os }}-armv7-toolchain-cache
 
-      - name: 安装交叉编译环境与全量依赖
+      - name: 安装交叉编译依赖
         run: |
           sudo apt update
           sudo apt install -y \
             gcc-arm-linux-gnueabihf g++-arm-linux-gnueabihf \
-            build-essential make cmake git wget zip unzip \
+            build-essential make cmake git libtool autoconf automake \
             libpng-dev libfreetype6-dev zlib1g-dev libasound2-dev libgl1-mesa-dev
 
-      - name: 设置核心优化参数 (ARMv7 + NEON + LTO全优化)
+      - name: 设置优化编译参数
         run: |
           echo "CC=arm-linux-gnueabihf-gcc" >> $GITHUB_ENV
           echo "CXX=arm-linux-gnueabihf-g++" >> $GITHUB_ENV
           echo "AR=arm-linux-gnueabihf-ar" >> $GITHUB_ENV
           echo "LD=arm-linux-gnueabihf-ld" >> $GITHUB_ENV
-          # ✅ 核心优化：ARMv7 + NEON + 硬浮点 + O2 + LTO性能优化
+          # ARMv7 + NEON + LTO 全优化
           echo "CFLAGS=-march=armv7-a -mtune=cortex-a9 -mfpu=neon-vfpv4 -mfloat-abi=hard -O2 -fPIC -flto" >> $GITHUB_ENV
           echo "CXXFLAGS=-march=armv7-a -mtune=cortex-a9 -mfpu=neon-vfpv4 -mfloat-abi=hard -O2 -fPIC -flto" >> $GITHUB_ENV
-          # ✅ LTO 必须同步添加到链接器参数
-          echo "LDFLAGS=-mfloat-abi=hard -Wl,--as-needed -flto" >> $GITHUB_ENV
-          # 官方指定 ARMv7+NEON 平台
+          echo "LDFLAGS=-mfloat-abi=hard -flto -Wl,--as-needed" >> $GITHUB_ENV
+          # 官方标准平台：ARMv7 硬浮点 + NEON
           echo "PLATFORM=unix-armv7-hardfloat-neon" >> $GITHUB_ENV
 
-      - name: 拉取所有 libretro 核心源码
+      - name: 拉取所有核心源码（官方标准命令）
         run: |
           cd libretro-super
           chmod +x libretro-fetch.sh
-          ./libretro-fetch.sh --all
+          ./libretro-fetch.sh  # 无参数，默认拉取全部核心
 
-      - name: 编译所有可兼容核心 (自动跳过失败项)
+      - name: 编译全平台核心（自动跳过不兼容，官方标准命令）
         run: |
           cd libretro-super
-          chmod +x libretro-build-all.sh
-          ./libretro-build-all.sh --platform="$PLATFORM" --continue-on-failure
+          chmod +x libretro-build.sh
+          ./libretro-build.sh $PLATFORM  # 直接指定平台，自动编译所有支持的核心
 
-      - name: 整理编译成功的核心文件
+      - name: 整理编译成功的核心
         run: |
           mkdir -p all-retroarch-cores
           find libretro-super/dist/unix -name "*_libretro.so" -exec cp {} all-retroarch-cores/ \;
-          echo "✅ 编译完成！成功编译核心数量：$(ls all-retroarch-cores | wc -l)"
+          echo "编译完成！成功编译核心数量：$(ls all-retroarch-cores | wc -l)"
 
-      - name: 上传所有优化版核心
+      - name: 上传核心文件
         uses: actions/upload-artifact@v4
         with:
           name: retroarch-all-armv7-neon-lto-cores
           path: all-retroarch-cores/
-          retention-days: 30  # 保存30天
+          retention-days: 30
