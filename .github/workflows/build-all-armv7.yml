@@ -1,4 +1,4 @@
-name: 编译全部 RetroArch ARMv7-NEON 核心 (终极版)
+name: 编译全部 RetroArch ARMv7-NEON 核心 (终极修复版)
 on:
   workflow_dispatch:
 
@@ -21,34 +21,32 @@ jobs:
           sudo apt install -y gcc-arm-linux-gnueabihf g++-arm-linux-gnueabihf build-essential cmake git
 
       - name: 拉取所有核心
-        run:
+        run: |
           cd libretro-super
           ./libretro-fetch.sh
 
-      # ✅✅✅ 【唯一正确】编译 ARMv7 全核心 的命令
-      - name: 正确编译全部 ARMv7 NEON 核心
+      - name: 编译全部 ARMv7 NEON 核心
         run: |
           cd libretro-super
           make -f Makefile.arm \
-            platform=unix-armv7-hardfloat-neon \
-            CC=arm-linux-gnueabihf-gcc \
-            CXX=arm-linux-gnueabihf-g++ \
-            AR=arm-linux-gnueabihf-ar \
-            LD=arm-linux-gnueabihf-ld \
-            CFLAGS="-march=armv7-a -mfpu=neon-vfpv4 -mfloat-abi=hard -O2" \
-            CXXFLAGS="-march=armv7-a -mfpu=neon-vfpv4 -mfloat-abi=hard -O2" \
-            all || true
+          platform=unix-armv7-hardfloat-neon \
+          CC=arm-linux-gnueabihf-gcc \
+          CXX=arm-linux-gnueabihf-g++ \
+          AR=arm-linux-gnueabihf-ar \
+          LD=arm-linux-gnueabihf-ld \
+          CFLAGS="-march=armv7-a -mfpu=neon-vfpv4 -mfloat-abi=hard -O2" \
+          CXXFLAGS="-march=armv7-a -mfpu=neon-vfpv4 -mfloat-abi=hard -O2" \
+          all || true
 
-      # ✅ 自动收集所有核心
-      - name: 收集所有 .so
+      - name: 收集所有核心
         run: |
           mkdir -p cores
           find libretro-super -name "*_libretro.so" -type f -exec cp {} cores/ \;
           echo "==================================="
-          echo 编译完成，总数：$(ls cores | wc -l)
+          echo 编译完成，核心总数：$(ls cores | wc -l)
           echo "==================================="
 
-      - name: 上传
+      - name: 上传核心包
         uses: actions/upload-artifact@v4
         with:
           name: retroarch-armv7-neon-all-cores
