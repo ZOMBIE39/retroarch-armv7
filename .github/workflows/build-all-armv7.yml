@@ -1,13 +1,13 @@
 name: 编译全部 RetroArch ARMv7-NEON 核心 (含LTO优化)
 on:
-  workflow_dispatch:  # 仅手动触发
+  workflow_dispatch:
 
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 720  # 12小时超时
+    timeout-minutes: 720
     steps:
-      - name: 检出 libretro-super 官方源码
+      - name: 检出 libretro-super
         uses: actions/checkout@v4
         with:
           repository: libretro/libretro-super
@@ -15,45 +15,45 @@ jobs:
           submodules: recursive
           fetch-depth: 1
 
-      - name: 安装 ARMv7 交叉编译工具链
+      - name: 安装交叉编译工具链
         run: |
           sudo apt update -y
           sudo apt install -y gcc-arm-linux-gnueabihf g++-arm-linux-gnueabihf build-essential make cmake git
 
-      - name: 配置编译优化参数（永久生效）
+      # 🔥 核心修复：全局导出交叉编译变量，让所有脚本强制读取
+      - name: 导出编译环境变量
         run: |
-          cat >> $GITHUB_ENV << EOF
-          CC=arm-linux-gnueabihf-gcc
-          CXX=arm-linux-gnueabihf-g++
-          AR=arm-linux-gnueabihf-ar
-          LD=arm-linux-gnueabihf-ld
-          CFLAGS=-march=armv7-a -mtune=cortex-a9 -mfpu=neon-vfpv4 -mfloat-abi=hard -O2 -fPIC -flto
-          CXXFLAGS=-march=armv7-a -mtune=cortex-a9 -mfpu=neon-vfpv4 -mfloat-abi=hard -O2 -fPIC -flto
-          LDFLAGS=-mfloat-abi=hard -flto -Wl,--as-needed
-          EOF
+          echo "export CC=arm-linux-gnueabihf-gcc" >> /etc/profile
+          echo "export CXX=arm-linux-gnueabihf-g++" >> /etc/profile
+          echo "export AR=arm-linux-gnueabihf-ar" >> /etc/profile
+          echo "export LD=arm-linux-gnueabihf-ld" >> /etc/profile
+          echo "export CFLAGS='-march=armv7-a -mtune=cortex-a9 -mfpu=neon-vfpv4 -mfloat-abi=hard -O2 -fPIC -flto'" >> /etc/profile
+          echo "export CXXFLAGS='-march=armv7-a -mtune=cortex-a9 -mfpu=neon-vfpv4 -mfloat-abi=hard -O2 -fPIC -flto'" >> /etc/profile
+          echo "export LDFLAGS='-mfloat-abi=hard -flto -Wl,--as-needed'" >> /etc/profile
+          source /etc/profile
 
       - name: 拉取所有核心源码
         run: |
           cd libretro-super
-          chmod +x libretro-fetch.sh
+          chmod +x libretro-fetch.sh libretro-build.sh
           ./libretro-fetch.sh
 
-      - name: 编译所有 ARMv7-NEON 核心（自动跳过失败）
+      - name: 编译 ARMv7-NEON 全核心
         run: |
           cd libretro-super
-          chmod +x libretro-build.sh
-          # 官方标准：指定平台编译全核心，强制继续
+          source /etc/profile
           ./libretro-build.sh unix-armv7-hardfloat-neon || true
 
-      - name: 收集所有编译成功的核心
+      # 🔥 关键修复：全仓库递归搜索所有编译成功的核心，不限制路径
+      - name: 收集所有核心文件（全路径搜索）
         run: |
           mkdir -p dist_cores
-          find libretro-super/dist/unix -name "*_libretro.so" -exec cp {} dist_cores/ \;
+          find $GITHUB_WORKSPACE/libretro-super -name "*_libretro.so" -type f -exec cp {} dist_cores/ \;
           echo "==================================="
-          echo "✅ 编译成功核心总数：$(ls dist_cores | wc -l)"
+          echo "编译成功核心数量：$(ls dist_cores | wc-l)"
           echo "==================================="
 
-      - name: 上传核心文件
+      - name: 上传核心包
         uses: actions/upload-artifact@v4
         with:
           name: retroarch-armv7-neon-lto-cores
