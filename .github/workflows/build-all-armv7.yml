@@ -1,4 +1,4 @@
-name: 编译全部 RetroArch ARMv7-NEON 核心 (终极修复版)
+name: 编译全量 RetroArch ARMv7 NEON 核心
 on:
   workflow_dispatch:
 
@@ -15,39 +15,32 @@ jobs:
           submodules: recursive
           fetch-depth: 1
 
-      - name: 安装工具链
+      - name: 安装交叉编译环境
         run: |
           sudo apt update
           sudo apt install -y gcc-arm-linux-gnueabihf g++-arm-linux-gnueabihf build-essential cmake git
 
-      - name: 拉取所有核心
+      - name: 拉取所有核心源码
         run: |
           cd libretro-super
+          chmod +x libretro-fetch.sh
           ./libretro-fetch.sh
 
-      - name: 编译全部 ARMv7 NEON 核心
+      - name: 编译全部核心（官方原生脚本，唯一正确）
         run: |
           cd libretro-super
-          make -f Makefile.arm \
-          platform=unix-armv7-hardfloat-neon \
-          CC=arm-linux-gnueabihf-gcc \
-          CXX=arm-linux-gnueabihf-g++ \
-          AR=arm-linux-gnueabihf-ar \
-          LD=arm-linux-gnueabihf-ld \
-          CFLAGS="-march=armv7-a -mfpu=neon-vfpv4 -mfloat-abi=hard -O2" \
-          CXXFLAGS="-march=armv7-a -mfpu=neon-vfpv4 -mfloat-abi=hard -O2" \
-          all || true
+          ./libretro-build-arm.sh
 
-      - name: 收集所有核心
+      - name: 收集所有编译好的核心
         run: |
           mkdir -p cores
-          find libretro-super -name "*_libretro.so" -type f -exec cp {} cores/ \;
-          echo "==================================="
-          echo 编译完成，核心总数：$(ls cores | wc -l)
-          echo "==================================="
+          find libretro-super -name "*.so" | grep -i "_libretro.so" | xargs cp -t cores/ || true
+          echo "====================================="
+          echo "✅ 编译完成，核心数量：$(ls cores | wc -l)"
+          echo "====================================="
 
       - name: 上传核心包
         uses: actions/upload-artifact@v4
         with:
-          name: retroarch-armv7-neon-all-cores
+          name: retroarch-armv7-neon-full-cores
           path: cores/
