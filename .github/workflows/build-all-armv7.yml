@@ -1,52 +1,80 @@
-name: 批量编译所有 RetroArch 核心 (armv7 H700)
+name: 批量编译 RetroArch 核心 (H700 armv7 32bit 修复版)
 
 on:
   workflow_dispatch:    # 手动触发（推荐）
-  # push:                # 不需要可以注释掉
-  #   branches: [ main ]
 
 jobs:
-  build-all-cores:
+  build:
     runs-on: ubuntu-latest
     steps:
-      - name: 安装依赖
+      - name: 安装交叉编译工具
         run: |
           sudo apt update
-          sudo apt install -y \
-            gcc-arm-linux-gnueabihf g++-arm-linux-gnueabihf \
-            build-essential git make pkg-config libtool-bin
+          sudo apt install -y gcc-arm-linux-gnueabihf g++-arm-linux-gnueabihf build-essential git make
 
-      - name: 拉取 libretro-super (官方批量编译工具)
+      - name: 拉取 libretro-super
         uses: actions/checkout@v4
         with:
           repository: libretro/libretro-super
           submodules: recursive
-          fetch-depth: 1
 
-      - name: 拉取所有核心源码
+      - name: 拉取核心源码
         run: |
           ./libretro-fetch.sh
 
-      - name: 批量编译所有核心 (H700 32位 armv7 + A53 + NEON)
+      # ==================== H700 专属编译参数 ====================
+      - name: 批量编译所有兼容核心 (自动跳过失败)
         run: |
-          # ==================== 全志 H700 专用优化参数 ====================
           export ARCH=armv7
           export CROSS_COMPILE=arm-linux-gnueabihf-
           export CFLAGS="-march=armv7-a -mtune=cortex-a53 -mfpu=neon-vfpv4 -mfloat-abi=hard -O2 -ffast-math"
           export CXXFLAGS="$CFLAGS"
           export LDFLAGS="-Wl,--strip-all"
+          export PLATFORM="armv7"
 
-          # 批量编译所有核心
-          ./libretro-build.sh armv7-neon
+          # 创建核心输出目录
+          mkdir -p dist
 
-      - name: 收集所有编译好的核心
+          # 核心列表（全兼容 H700 32位，可自行增删）
+          CORES=(
+            # 任天堂
+            fceumm gambatte mgba snes9x vbnes quicknes
+            # 世嘉
+            genesis_plus_gx picodrive gearsystem
+            # 索尼
+            mednafen_ps1 pcsx_rearmed
+            # 街机/怀旧
+            fbneo mame2003_plus mame2010
+            # 多平台
+            mednafen_lynx mednafen_ngp mednafen_pce_fast
+            # 其他
+            stella 2048 doom libretro-vecx
+          )
+
+          # 自动批量编译 + 跳过失败
+          for core in "${CORES[@]}"; do
+            echo -e "\n====================================="
+            echo "正在编译: $core"
+            echo -e "=====================================\n"
+            
+            cd "$GITHUB_WORKSPACE"
+            if [ -d "libretro-$core" ]; then
+              cd "libretro-$core"
+              make -f Makefile.libretro PLATFORM=$PLATFORM -j$(nproc) || echo "⚠️  $core 编译失败，跳过"
+              cp *.so ../dist/ 2>/dev/null
+            else
+              echo "⚠️  未找到 $core 源码，跳过"
+            fi
+          done
+
+      - name: 打包所有核心
         run: |
-          mkdir -p all-cores
-          find . -name "*_libretro.so" -exec cp {} all-cores/ \;
-          ls -lh all-cores/
+          cd dist
+          ls -lh *.so
+          zip -r retroarch-cores-armv7-h700.zip *.so
 
       - name: 上传完整核心包
         uses: actions/upload-artifact@v4
         with:
-          name: retroarch-all-cores-armv7-h700
-          path: all-cores/
+          name: retroarch-cores-armv7-h700
+          path: dist/*.zip
