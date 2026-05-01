@@ -1,50 +1,66 @@
-name: Build RetroArch Cores for H700 (32-bit)
+name: Build RetroArch H700 Cores (32-bit)
 
 on:
   workflow_dispatch: # 手动触发
+  push:
+    branches: [ main ]
 
 jobs:
   build:
     runs-on: ubuntu-latest
+    
     strategy:
       fail-fast: false
       matrix:
-        # 在这里列出你想编译的核心（仓库名）
-        core: [fceumm, snes9x, mgba, genesis-plus-gx, picodrive, fbneo, gambatte]
+        # 这里列出你想要编译的核心名称（对应 libretro-super 中的名字）
+        # 如果要编译全部，可以分批处理，否则会超过 GitHub 6小时限制
+        core: [fceumm, snes9x, genesis_plus_gx, mgba, gambatte, picodrive, fbneo]
 
     steps:
-      - name: Checkout Core
+      - name: Checkout
         uses: actions/checkout@v4
-        with:
-          repository: libretro/${{ matrix.core }}
-          path: ${{ matrix.core }}
 
-      - name: Install Toolchain
+      - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential xz-utils wget
-          sudo apt-get install -y gcc-arm-linux-gnueabihf g++-arm-linux-gnueabihf
+          sudo apt-get install -y build-essential grep git coreutils wget \
+          gcc-arm-linux-gnueabihf g++-arm-linux-gnueabihf \
+          libxml2-dev liblua5.3-dev python3 python3-pip
+
+      - name: Setup libretro-super
+        run: |
+          git clone --depth 1 https://github.com/libretro/libretro-super.git
+          cd libretro-super
+          # 仅克隆当前矩阵指定的仓库，节省空间和时间
+          ./libretro-fetch.sh ${{ matrix.core }}
 
       - name: Build Core
         run: |
-          cd ${{ matrix.core }}
-          # H700 优化参数：Cortex-A53, 32位 armhf
-          # 常用参数包括 NEON 加速和 VFPv4
+          cd libretro-super
+          
+          # 设置 H700 (ARMv7 32位) 的编译参数
+          # H700 是 Cortex-A53，但在 32 位模式下建议使用以下优化参数
           export ARCH=arm
           export CROSS_COMPILE=arm-linux-gnueabihf-
           export CC=${CROSS_COMPILE}gcc
           export CXX=${CROSS_COMPILE}g++
+          export STRIP=${CROSS_COMPILE}strip
           
-          # 针对全志 H700 的典型 CFLAGS
-          # H700 是 Cortex-A53，支持 ARMv8，但 32 位下使用 armv7ve 兼容性最好
-          EXT_FLAGS="-marm -mcpu=cortex-a53 -mfpu=neon-fp-armv8 -mfloat-abi=hard"
-          
-          # 执行编译，通常使用 Makefile
-          # platform=unix 是通用选择，部分核心可能需要 platform=armv 或其他
-          make -f Makefile platform=unix CFLAGS="$EXT_FLAGS" CXXFLAGS="$EXT_FLAGS" -j$(nproc)
+          # 平台参数：通常全志设备在 libretro 中对应 unix 平台，并开启 NEON 优化
+          export platform=unix-armv7-hardfloat-neon
+          export CFLAGS="-O3 -march=armv8-a+crc -mtune=cortex-a53 -mfpu=neon-fp-armv8 -mfloat-abi=hard"
+          export CXXFLAGS="$CFLAGS"
+
+          # 开始编译
+          ./libretro-build.sh ${{ matrix.core }}
+
+      - name: Organize Artifacts
+        run: |
+          mkdir -p output
+          find libretro-super/dist/unix/ -name "*.so" -exec cp {} output/ \;
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ matrix.core }}-h700
-          path: ${{ matrix.core }}/*.so
+          name: h700-core-${{ matrix.core }}
+          path: output/*.so
