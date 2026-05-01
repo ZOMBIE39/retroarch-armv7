@@ -1,19 +1,17 @@
-name: Build RetroArch H700 Cores (32-bit)
+name: Build RetroArch H700 Cores (ARMv7-hf)
 
 on:
-  workflow_dispatch: # 手动触发
+  workflow_dispatch:
   push:
     branches: [ main ]
 
 jobs:
   build:
     runs-on: ubuntu-latest
-    
     strategy:
       fail-fast: false
       matrix:
-        # 这里列出你想要编译的核心名称（对应 libretro-super 中的名字）
-        # 如果要编译全部，可以分批处理，否则会超过 GitHub 6小时限制
+        # 建议先从轻量级核心开始测试
         core: [fceumm, snes9x, genesis_plus_gx, mgba, gambatte, picodrive, fbneo]
 
     steps:
@@ -25,42 +23,45 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y build-essential grep git coreutils wget \
           gcc-arm-linux-gnueabihf g++-arm-linux-gnueabihf \
-          libxml2-dev liblua5.3-dev python3 python3-pip
+          libxml2-dev liblua5.3-dev python3
 
       - name: Setup libretro-super
         run: |
           git clone --depth 1 https://github.com/libretro/libretro-super.git
           cd libretro-super
-          # 仅克隆当前矩阵指定的仓库，节省空间和时间
           ./libretro-fetch.sh ${{ matrix.core }}
 
       - name: Build Core
         run: |
           cd libretro-super
           
-          # 设置 H700 (ARMv7 32位) 的编译参数
-          # H700 是 Cortex-A53，但在 32 位模式下建议使用以下优化参数
+          # 交叉编译工具链设置
           export ARCH=arm
           export CROSS_COMPILE=arm-linux-gnueabihf-
           export CC=${CROSS_COMPILE}gcc
           export CXX=${CROSS_COMPILE}g++
           export STRIP=${CROSS_COMPILE}strip
           
-          # 平台参数：通常全志设备在 libretro 中对应 unix 平台，并开启 NEON 优化
+          # 核心修改点：强制使用 armv7-a 架构
+          # platform 设置为 unix-armv7-hardfloat-neon 是最稳妥的 libretro 通用模板
           export platform=unix-armv7-hardfloat-neon
-          export CFLAGS="-O3 -march=armv7-a+crc -mtune=cortex-a53 -mfpu=neon-fp-armv7 -mfloat-abi=hard"
+          
+          # 优化参数：针对 A53 在 32 位下的最强兼容配置
+          # 使用 vfpv4 而不是 fp-armv8 避开某些编译器的解析歧义
+          export CFLAGS="-O3 -march=armv7-ve -mtune=cortex-a53 -mfpu=neon-vfpv4 -mfloat-abi=hard -marm"
           export CXXFLAGS="$CFLAGS"
+          export ASFLAGS="$CFLAGS"
 
-          # 开始编译
           ./libretro-build.sh ${{ matrix.core }}
 
       - name: Organize Artifacts
         run: |
           mkdir -p output
-          find libretro-super/dist/unix/ -name "*.so" -exec cp {} output/ \;
+          # 递归搜索所有生成的 .so 文件
+          find libretro-super/dist/ -name "*.so" -exec cp {} output/ \;
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: h700-core-${{ matrix.core }}
+          name: h700-v7hf-core-${{ matrix.core }}
           path: output/*.so
