@@ -48,7 +48,7 @@ jobs:
           
           # 平台参数：通常全志设备在 libretro 中对应 unix 平台，并开启 NEON 优化
           export platform=unix-armv7-hardfloat-neon
-          export CFLAGS="-O3 -march=armv8-a+crc -mtune=cortex-a53 -mfpu=neon-fp-armv8 -mfloat-abi=hard"
+          export CFLAGS="-O3 -march=armv7-a+crc -mtune=cortex-a53 -mfpu=neon-fp-armv7 -mfloat-abi=hard"
           export CXXFLAGS="$CFLAGS"
 
           # 开始编译
