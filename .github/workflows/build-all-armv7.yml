@@ -1,80 +1,50 @@
-name: 批量编译 RetroArch 核心 (H700 armv7 32bit 修复版)
+name: Build RetroArch Cores for H700 (32-bit)
 
 on:
-  workflow_dispatch:    # 手动触发（推荐）
+  workflow_dispatch: # 手动触发
 
 jobs:
   build:
     runs-on: ubuntu-latest
-    steps:
-      - name: 安装交叉编译工具
-        run: |
-          sudo apt update
-          sudo apt install -y gcc-arm-linux-gnueabihf g++-arm-linux-gnueabihf build-essential git make
+    strategy:
+      fail-fast: false
+      matrix:
+        # 在这里列出你想编译的核心（仓库名）
+        core: [fceumm, snes9x, mgba, genesis-plus-gx, picodrive, fbneo, gambatte]
 
-      - name: 拉取 libretro-super
+    steps:
+      - name: Checkout Core
         uses: actions/checkout@v4
         with:
-          repository: libretro/libretro-super
-          submodules: recursive
+          repository: libretro/${{ matrix.core }}
+          path: ${{ matrix.core }}
 
-      - name: 拉取核心源码
+      - name: Install Toolchain
         run: |
-          ./libretro-fetch.sh
+          sudo apt-get update
+          sudo apt-get install -y build-essential xz-utils wget
+          sudo apt-get install -y gcc-arm-linux-gnueabihf g++-arm-linux-gnueabihf
 
-      # ==================== H700 专属编译参数 ====================
-      - name: 批量编译所有兼容核心 (自动跳过失败)
+      - name: Build Core
         run: |
-          export ARCH=armv7
+          cd ${{ matrix.core }}
+          # H700 优化参数：Cortex-A53, 32位 armhf
+          # 常用参数包括 NEON 加速和 VFPv4
+          export ARCH=arm
           export CROSS_COMPILE=arm-linux-gnueabihf-
-          export CFLAGS="-march=armv7-a -mtune=cortex-a53 -mfpu=neon-vfpv4 -mfloat-abi=hard -O2 -ffast-math"
-          export CXXFLAGS="$CFLAGS"
-          export LDFLAGS="-Wl,--strip-all"
-          export PLATFORM="armv7"
+          export CC=${CROSS_COMPILE}gcc
+          export CXX=${CROSS_COMPILE}g++
+          
+          # 针对全志 H700 的典型 CFLAGS
+          # H700 是 Cortex-A53，支持 ARMv8，但 32 位下使用 armv7ve 兼容性最好
+          EXT_FLAGS="-marm -mcpu=cortex-a53 -mfpu=neon-fp-armv8 -mfloat-abi=hard"
+          
+          # 执行编译，通常使用 Makefile
+          # platform=unix 是通用选择，部分核心可能需要 platform=armv 或其他
+          make -f Makefile platform=unix CFLAGS="$EXT_FLAGS" CXXFLAGS="$EXT_FLAGS" -j$(nproc)
 
-          # 创建核心输出目录
-          mkdir -p dist
-
-          # 核心列表（全兼容 H700 32位，可自行增删）
-          CORES=(
-            # 任天堂
-            fceumm gambatte mgba snes9x vbnes quicknes
-            # 世嘉
-            genesis_plus_gx picodrive gearsystem
-            # 索尼
-            mednafen_ps1 pcsx_rearmed
-            # 街机/怀旧
-            fbneo mame2003_plus mame2010
-            # 多平台
-            mednafen_lynx mednafen_ngp mednafen_pce_fast
-            # 其他
-            stella 2048 doom libretro-vecx
-          )
-
-          # 自动批量编译 + 跳过失败
-          for core in "${CORES[@]}"; do
-            echo -e "\n====================================="
-            echo "正在编译: $core"
-            echo -e "=====================================\n"
-            
-            cd "$GITHUB_WORKSPACE"
-            if [ -d "libretro-$core" ]; then
-              cd "libretro-$core"
-              make -f Makefile.libretro PLATFORM=$PLATFORM -j$(nproc) || echo "⚠️  $core 编译失败，跳过"
-              cp *.so ../dist/ 2>/dev/null
-            else
-              echo "⚠️  未找到 $core 源码，跳过"
-            fi
-          done
-
-      - name: 打包所有核心
-        run: |
-          cd dist
-          ls -lh *.so
-          zip -r retroarch-cores-armv7-h700.zip *.so
-
-      - name: 上传完整核心包
+      - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: retroarch-cores-armv7-h700
-          path: dist/*.zip
+          name: ${{ matrix.core }}-h700
+          path: ${{ matrix.core }}/*.so
